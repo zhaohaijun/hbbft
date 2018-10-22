@@ -22,6 +22,8 @@
 //! entries, any two nodes will likely make almost disjoint contributions instead of proposing
 //! the same transaction multiple times.
 
+pub mod sender_queue;
+
 use std::fmt::{self, Display};
 use std::marker::PhantomData;
 use std::{cmp, iter};
@@ -32,9 +34,9 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use dynamic_honey_badger::{self, Batch as DhbBatch, DynamicHoneyBadger, Message};
 use transaction_queue::TransactionQueue;
-use {util, Contribution, DistAlgorithm, NodeIdT};
+use {util, Contribution, DistAlgorithm, KnowsAllRemoteNodes, NodeIdT};
 
-pub use dynamic_honey_badger::{Change, ChangeState, Input};
+pub use dynamic_honey_badger::{Change, ChangeState, Epoch, Input};
 
 /// Queueing honey badger error variants.
 #[derive(Debug, Fail)]
@@ -176,7 +178,7 @@ where
 pub struct QueueingHoneyBadger<T, N: Rand, Q> {
     /// The target number of transactions to be included in each batch.
     batch_size: usize,
-    /// The internal `DynamicHoneyBadger` instance.
+    /// The internal managed `DynamicHoneyBadger` instance.
     dyn_hb: DynamicHoneyBadger<Vec<T>, N>,
     /// The queue of pending transactions that haven't been output in a batch yet.
     queue: Q,
@@ -218,6 +220,17 @@ where
 
     fn our_id(&self) -> &N {
         self.dyn_hb.our_id()
+    }
+}
+
+impl<T, N, Q> KnowsAllRemoteNodes<QueueingHoneyBadger<T, N, Q>> for QueueingHoneyBadger<T, N, Q>
+where
+    T: Contribution + Serialize + DeserializeOwned + Clone,
+    N: NodeIdT + Serialize + DeserializeOwned + Rand,
+    Q: TransactionQueue<T>,
+{
+    fn all_remote_nodes(&self) -> Vec<&N> {
+        self.dyn_hb.all_remote_nodes()
     }
 }
 
@@ -276,7 +289,7 @@ where
         Ok(step)
     }
 
-    /// Returns a reference to the internal `DynamicHoneyBadger` instance.
+    /// Returns a reference to the internal managed `DynamicHoneyBadger` instance.
     pub fn dyn_hb(&self) -> &DynamicHoneyBadger<Vec<T>, N> {
         &self.dyn_hb
     }

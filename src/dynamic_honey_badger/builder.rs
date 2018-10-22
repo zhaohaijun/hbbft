@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::default::Default;
 use std::iter::once;
 use std::marker::PhantomData;
@@ -24,10 +25,15 @@ pub struct DynamicHoneyBadgerBuilder<C, N> {
     rng: Box<dyn rand::Rng>,
     /// Strategy used to handle the output of the `Subset` algorithm.
     subset_handling_strategy: SubsetHandlingStrategy,
+    /// Observer nodes.
+    observers: BTreeSet<N>,
     _phantom: PhantomData<(C, N)>,
 }
 
-impl<C, N> Default for DynamicHoneyBadgerBuilder<C, N> {
+impl<C, N> Default for DynamicHoneyBadgerBuilder<C, N>
+where
+    N: Ord,
+{
     fn default() -> Self {
         // TODO: Use the defaults from `HoneyBadgerBuilder`.
         DynamicHoneyBadgerBuilder {
@@ -35,6 +41,7 @@ impl<C, N> Default for DynamicHoneyBadgerBuilder<C, N> {
             max_future_epochs: 3,
             rng: Box::new(rand::thread_rng()),
             subset_handling_strategy: SubsetHandlingStrategy::Incremental,
+            observers: BTreeSet::new(),
             _phantom: PhantomData,
         }
     }
@@ -78,6 +85,12 @@ where
         self
     }
 
+    /// Assigns a set of observers.
+    pub fn observers(&mut self, observers: BTreeSet<N>) -> &mut Self {
+        self.observers = observers;
+        self
+    }
+
     /// Creates a new Dynamic Honey Badger instance with an empty buffer.
     pub fn build(&mut self, netinfo: NetworkInfo<N>) -> DynamicHoneyBadger<C, N> {
         let DynamicHoneyBadgerBuilder {
@@ -85,6 +98,7 @@ where
             max_future_epochs,
             rng,
             subset_handling_strategy,
+            observers,
             _phantom,
         } = self;
         let epoch = *epoch;
@@ -94,17 +108,18 @@ where
             .max_future_epochs(max_future_epochs)
             .rng(rng.sub_rng())
             .subset_handling_strategy(subset_handling_strategy.clone())
+            .observers(observers.clone())
             .build();
         DynamicHoneyBadger {
             netinfo,
             max_future_epochs,
-            start_epoch: epoch,
+            era: epoch,
             vote_counter: VoteCounter::new(arc_netinfo, 0),
             key_gen_msg_buffer: Vec::new(),
             honey_badger,
             key_gen_state: None,
-            incoming_queue: Vec::new(),
             rng: Box::new(rng.sub_rng()),
+            observers: observers.clone(),
         }
     }
 
@@ -141,13 +156,13 @@ where
         let mut dhb = DynamicHoneyBadger {
             netinfo,
             max_future_epochs: self.max_future_epochs,
-            start_epoch: join_plan.epoch,
+            era: join_plan.epoch,
             vote_counter: VoteCounter::new(arc_netinfo, join_plan.epoch),
             key_gen_msg_buffer: Vec::new(),
             honey_badger,
             key_gen_state: None,
-            incoming_queue: Vec::new(),
             rng: Box::new(self.rng.sub_rng()),
+            observers: BTreeSet::new(),
         };
         let step = match join_plan.change {
             ChangeState::InProgress(ref change) => dhb.update_key_gen(join_plan.epoch, change)?,

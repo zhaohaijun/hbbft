@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -22,6 +22,8 @@ pub struct HoneyBadgerBuilder<C, N> {
     rng: Box<dyn Rng>,
     /// Strategy used to handle the output of the `Subset` algorithm.
     subset_handling_strategy: SubsetHandlingStrategy,
+    /// Observer nodes.
+    observers: BTreeSet<N>,
     _phantom: PhantomData<C>,
 }
 
@@ -39,6 +41,7 @@ where
             max_future_epochs: 3,
             rng: Box::new(rand::thread_rng()),
             subset_handling_strategy: SubsetHandlingStrategy::Incremental,
+            observers: BTreeSet::new(),
             _phantom: PhantomData,
         }
     }
@@ -70,6 +73,12 @@ where
         self
     }
 
+    /// Assigns a set of observers.
+    pub fn observers(&mut self, observers: BTreeSet<N>) -> &mut Self {
+        self.observers = observers;
+        self
+    }
+
     /// Creates a new Honey Badger instance.
     pub fn build(&mut self) -> HoneyBadger<C, N> {
         HoneyBadger {
@@ -78,9 +87,9 @@ where
             has_input: false,
             epochs: BTreeMap::new(),
             max_future_epochs: self.max_future_epochs as u64,
-            incoming_queue: BTreeMap::new(),
             rng: Box::new(self.rng.sub_rng()),
             subset_handling_strategy: self.subset_handling_strategy.clone(),
+            observers: self.observers.clone(),
         }
     }
 }

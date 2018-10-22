@@ -1,5 +1,5 @@
 use std::collections::btree_map::Entry;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use bincode;
@@ -7,8 +7,8 @@ use rand::{Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::epoch_state::EpochState;
-use super::{Batch, Error, ErrorKind, HoneyBadgerBuilder, Message, MessageContent, Result};
-use {util, Contribution, DistAlgorithm, NetworkInfo, NodeIdT};
+use super::{Batch, Error, ErrorKind, HoneyBadgerBuilder, Message, Result};
+use {util, Contribution, DistAlgorithm, Epoched, KnowsAllRemoteNodes, NetworkInfo, NodeIdT};
 
 pub use super::epoch_state::SubsetHandlingStrategy;
 
@@ -26,14 +26,23 @@ pub struct HoneyBadger<C, N: Rand> {
     pub(super) epochs: BTreeMap<u64, EpochState<C, N>>,
     /// The maximum number of `Subset` instances that we run simultaneously.
     pub(super) max_future_epochs: u64,
-    /// Messages for future epochs that couldn't be handled yet.
-    pub(super) incoming_queue: BTreeMap<u64, Vec<(N, MessageContent<N>)>>,
     /// A random number generator used for secret key generation.
     // Boxed to avoid overloading the algorithm's type with more generics.
     #[derivative(Debug(format_with = "util::fmt_rng"))]
     pub(super) rng: Box<dyn Rng + Send + Sync>,
     /// Represents the optimization strategy to use for output of the `Subset` algorithm.
     pub(super) subset_handling_strategy: SubsetHandlingStrategy,
+    /// Observer nodes. These nodes are not validators and there is no ongoing ballot to add any of
+    /// them as a validator. However they should receive all `Target::All` messages.
+    pub(super) observers: BTreeSet<N>,
+}
+
+impl<C, N: Rand> Epoched for HoneyBadger<C, N> {
+    type Epoch = u64;
+
+    fn epoch(&self) -> Self::Epoch {
+        self.epoch
+    }
 }
 
 pub type Step<C, N> = ::Step<HoneyBadger<C, N>>;
@@ -63,6 +72,22 @@ where
 
     fn our_id(&self) -> &N {
         self.netinfo.our_id()
+    }
+}
+
+impl<C, N> KnowsAllRemoteNodes<HoneyBadger<C, N>> for HoneyBadger<C, N>
+where
+    C: Contribution + Serialize + DeserializeOwned,
+    N: NodeIdT + Rand,
+{
+    fn all_remote_nodes(&self) -> Vec<&N> {
+        let our_id = self.netinfo.our_id();
+        self.netinfo
+            .all_ids()
+            .chain(self.observers.iter())
+            .filter(|&id| id != our_id)
+            .into_iter()
+            .collect()
     }
 }
 
@@ -109,19 +134,13 @@ where
             return Err(ErrorKind::UnknownSender.into());
         }
         let Message { epoch, content } = message;
-        if epoch > self.epoch + self.max_future_epochs {
-            // Postpone handling this message.
-            self.incoming_queue
-                .entry(epoch)
-                .or_insert_with(Vec::new)
-                .push((sender_id.clone(), content));
-        } else if self.epoch <= epoch {
+        if self.epoch <= epoch && epoch <= self.epoch + self.max_future_epochs {
             let mut step = self
                 .epoch_state_mut(epoch)?
                 .handle_message_content(sender_id, content)?;
             step.extend(self.try_output_batches()?);
             return Ok(step);
-        } // And ignore all messages from past epochs.
+        } // And ignore all messages from past or future epochs.
         Ok(Step::default())
     }
 
@@ -139,26 +158,17 @@ where
     }
 
     /// Increments the epoch number and clears any state that is local to the finished epoch.
-    fn update_epoch(&mut self) -> Result<Step<C, N>> {
+    fn update_epoch(&mut self) {
         // Clear the state of the old epoch.
         self.epochs.remove(&self.epoch);
         self.epoch += 1;
         self.has_input = false;
-        let max_epoch = self.epoch + self.max_future_epochs;
-        let mut step = Step::default();
-        if let Some(messages) = self.incoming_queue.remove(&max_epoch) {
-            let epoch_state = self.epoch_state_mut(max_epoch)?;
-            for (sender_id, content) in messages {
-                step.extend(epoch_state.handle_message_content(&sender_id, content)?);
-            }
-        }
-        Ok(step)
     }
 
     /// Tries to decrypt contributions from all proposers and output those in a batch.
     fn try_output_batches(&mut self) -> Result<Step<C, N>> {
         let mut step = Step::default();
-        while let Some((batch, fault_log)) = self
+        if let Some((batch, fault_log)) = self
             .epochs
             .get(&self.epoch)
             .and_then(EpochState::try_output_batch)
@@ -166,7 +176,7 @@ where
             // Queue the output and advance the epoch.
             step.output.push_back(batch);
             step.fault_log.extend(fault_log);
-            step.extend(self.update_epoch()?);
+            self.update_epoch();
         }
         Ok(step)
     }
