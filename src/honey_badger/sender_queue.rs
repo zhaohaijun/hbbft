@@ -1,7 +1,7 @@
 use std::cmp;
 
 use rand::Rand;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 
 use super::{Batch, HoneyBadger, Message, Step};
 use sender_queue::SenderQueueFunc;
@@ -9,8 +9,8 @@ use {Contribution, Epoched, NodeIdT};
 
 impl<C, N> SenderQueueFunc<HoneyBadger<C, N>> for HoneyBadger<C, N>
 where
-    C: Contribution + Serialize + for<'r> Deserialize<'r>,
-    N: NodeIdT + Serialize + for<'r> Deserialize<'r> + Rand,
+    C: Contribution + Serialize + DeserializeOwned,
+    N: NodeIdT + Serialize + DeserializeOwned + Rand,
 {
     type Step = Step<C, N>;
 

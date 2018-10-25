@@ -444,7 +444,10 @@ fn main() {
             .batch_size(args.flag_b)
             .build_with_transactions(txs.clone(), rand::thread_rng().gen::<Isaac64Rng>())
             .expect("instantiate QueueingHoneyBadger");
-        let (sq, mut step) = SenderQueue::builder(qhb).build(netinfo);
+        let (sq, mut step) = SenderQueue::builder(qhb).build(
+            netinfo.our_id().clone(),
+            netinfo.all_ids().cloned().collect(),
+        );
         step.extend_with(qhb_step, Message::from);
         (sq, step)
     };

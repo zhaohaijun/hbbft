@@ -113,11 +113,13 @@ fn new_dynamic_hb(
     netinfo: Arc<NetworkInfo<NodeId>>,
 ) -> (UsizeDhb, Step<DynamicHoneyBadger<Vec<usize>, NodeId>>) {
     let observer = NodeId(netinfo.num_nodes());
-    SenderQueue::builder(
-        DynamicHoneyBadger::builder()
-            .observers(iter::once(observer).collect())
-            .build((*netinfo).clone()),
-    ).build(netinfo)
+    let peer_ids = netinfo
+        .all_ids()
+        .cloned()
+        .chain(iter::once(observer))
+        .collect();
+    SenderQueue::builder(DynamicHoneyBadger::builder().build((*netinfo).clone()))
+        .build(netinfo.our_id().clone(), peer_ids)
 }
 
 fn test_dynamic_honey_badger_different_sizes<A, F>(new_adversary: F, num_txs: usize)

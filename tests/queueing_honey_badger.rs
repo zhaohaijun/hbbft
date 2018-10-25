@@ -95,12 +95,15 @@ fn new_queueing_hb(
     netinfo: Arc<NetworkInfo<NodeId>>,
 ) -> (QHB, Step<QueueingHoneyBadger<usize, NodeId, Vec<usize>>>) {
     let observer = NodeId(netinfo.num_nodes());
-    let dhb = DynamicHoneyBadger::builder()
-        .observers(iter::once(observer).collect())
-        .build((*netinfo).clone());
+    let peer_ids = netinfo
+        .all_ids()
+        .cloned()
+        .chain(iter::once(observer))
+        .collect();
+    let dhb = DynamicHoneyBadger::builder().build((*netinfo).clone());
     let rng = rand::thread_rng().gen::<Isaac64Rng>();
     let (qhb, qhb_step) = QueueingHoneyBadger::builder(dhb).batch_size(3).build(rng);
-    let (sq, mut step) = SenderQueue::builder(qhb).build(netinfo);
+    let (sq, mut step) = SenderQueue::builder(qhb).build(netinfo.our_id().clone(), peer_ids);
     step.extend_with(qhb_step, Message::from);
     (sq, step)
 }

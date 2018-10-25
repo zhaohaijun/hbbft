@@ -158,6 +158,4 @@ pub use crypto::pairing;
 pub use fault_log::{AckMessageFault, Fault, FaultKind, FaultLog};
 pub use messaging::{SourcedMessage, Target, TargetedMessage};
 pub use network_info::NetworkInfo;
-pub use traits::{
-    Contribution, DistAlgorithm, Epoched, KnowsAllRemoteNodes, Message, NodeIdT, Step,
-};
+pub use traits::{Contribution, DistAlgorithm, Epoched, Message, NodeIdT, Step};

@@ -1,5 +1,5 @@
 use rand::Rand;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 
 use super::{Batch, DynamicHoneyBadger, Epoch, Message, QueueingHoneyBadger, Step};
 use sender_queue::SenderQueueFunc;
@@ -8,8 +8,8 @@ use {Contribution, NodeIdT};
 
 impl<T, N, Q> SenderQueueFunc<QueueingHoneyBadger<T, N, Q>> for QueueingHoneyBadger<T, N, Q>
 where
-    T: Contribution + Serialize + for<'r> Deserialize<'r> + Clone,
-    N: NodeIdT + Serialize + for<'r> Deserialize<'r> + Rand,
+    T: Contribution + Serialize + DeserializeOwned + Clone,
+    N: NodeIdT + Serialize + DeserializeOwned + Rand,
     Q: TransactionQueue<T>,
 {
     type Step = Step<T, N, Q>;

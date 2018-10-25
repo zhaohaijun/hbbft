@@ -191,12 +191,14 @@ where
 fn new_honey_badger(
     netinfo: Arc<NetworkInfo<NodeId>>,
 ) -> (UsizeHoneyBadger, Step<HoneyBadger<Vec<usize>, NodeId>>) {
+    let our_id = *netinfo.our_id();
     let observer = NodeId(netinfo.num_nodes());
-    SenderQueue::builder(
-        HoneyBadger::builder(netinfo.clone())
-            .observers(iter::once(observer).collect())
-            .build(),
-    ).build(netinfo)
+    let peer_ids = netinfo
+        .all_ids()
+        .cloned()
+        .chain(iter::once(observer))
+        .collect();
+    SenderQueue::builder(HoneyBadger::builder(netinfo).build()).build(our_id, peer_ids)
 }
 
 fn test_honey_badger_different_sizes<A, F>(new_adversary: F, num_txs: usize)

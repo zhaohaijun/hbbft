@@ -8,14 +8,13 @@ extern crate threshold_crypto;
 
 pub mod net;
 
-use std::sync::Arc;
 use std::{collections, time};
 
 use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input};
 use hbbft::sender_queue::SenderQueue;
 use hbbft::DistAlgorithm;
 use net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
-use net::NetBuilder;
+use net::{NetBuilder, NewNodeInfo};
 use proptest::prelude::ProptestConfig;
 use rand::{Rng, SeedableRng};
 
@@ -103,12 +102,12 @@ fn do_drop_and_readd(cfg: TestConfig) {
         .time_limit(time::Duration::from_secs(30 * cfg.dimension.size() as u64))
         // Ensure runs are reproducible.
         .rng(rng.gen::<TestRng>())
-        .using_step(move |node| {
+        .using_step(move |node: NewNodeInfo<SenderQueue<_>>| {
             println!("Constructing new dynamic honey badger node #{}", node.id);
             SenderQueue::builder(DynamicHoneyBadger::builder()
                                  .rng(node.rng)
                                  .build(node.netinfo.clone()))
-                .build(Arc::new(node.netinfo))
+                .build(node.id, node.netinfo.all_ids().cloned().collect())
         }).build()
         .expect("could not construct test network");
 

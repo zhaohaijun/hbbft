@@ -8,14 +8,13 @@
 mod message;
 
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
-use std::sync::Arc;
 
 use rand::Rand;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 
-use {DistAlgorithm, Epoched, KnowsAllRemoteNodes, NetworkInfo, NodeIdT, Target, TargetedMessage};
+use {DistAlgorithm, Epoched, NodeIdT, Target, TargetedMessage};
 
 pub use self::message::{Message, MessageContent};
 
@@ -23,7 +22,7 @@ pub use self::message::{Message, MessageContent};
 pub trait SenderQueueFunc<D>
 where
     D: DistAlgorithm,
-    <D as DistAlgorithm>::Message: Clone + Epoched + Serialize + for<'r> Deserialize<'r>,
+    <D as DistAlgorithm>::Message: Clone + Epoched + Serialize + DeserializeOwned,
     D::NodeId: NodeIdT + Rand,
 {
     type Step;
@@ -45,13 +44,13 @@ where
     fn is_passed_unchanged(
         &self,
         msg: &TargetedMessage<D::Message, D::NodeId>,
-        remote_epochs: &BTreeMap<D::NodeId, <D::Message as Epoched>::Epoch>,
+        peer_epochs: &BTreeMap<D::NodeId, <D::Message as Epoched>::Epoch>,
     ) -> bool {
         let pass =
             |&them: &<D::Message as Epoched>::Epoch| self.is_accepting_epoch(&msg.message, them);
         match &msg.target {
-            Target::All => remote_epochs.values().all(pass),
-            Target::Node(id) => remote_epochs.get(&id).map_or(false, pass),
+            Target::All => peer_epochs.values().all(pass),
+            Target::Node(id) => peer_epochs.get(&id).map_or(false, pass),
         }
     }
 
@@ -88,19 +87,22 @@ pub type OutgoingQueue<D> = BTreeMap<
 pub struct SenderQueue<D>
 where
     D: DistAlgorithm + SenderQueueFunc<D>,
-    D::Message: Clone + Epoched + Serialize + for<'r> Deserialize<'r>,
+    D::Message: Clone + Epoched + Serialize + DeserializeOwned,
     D::NodeId: NodeIdT + Rand,
 {
     /// The managed `DistAlgorithm` instance.
     algo: D,
-    /// `NetworkInfo` of the managed algorithm.
-    netinfo: Arc<NetworkInfo<D::NodeId>>,
+    /// Our node ID.
+    our_id: D::NodeId,
+    /// The set of all remote nodes on the network including validator as well as non-validator
+    /// (observer) nodes.
+    peer_ids: BTreeSet<D::NodeId>,
     /// Current epoch.
     epoch: <D::Message as Epoched>::Epoch,
     /// Messages that couldn't be handled yet by remote nodes.
     outgoing_queue: OutgoingQueue<D>,
     /// Known current epochs of remote nodes.
-    remote_epochs: BTreeMap<D::NodeId, <D::Message as Epoched>::Epoch>,
+    peer_epochs: BTreeMap<D::NodeId, <D::Message as Epoched>::Epoch>,
 }
 
 pub type Step<D> = ::Step<SenderQueue<D>>;
@@ -109,8 +111,8 @@ pub type Result<T, D> = ::std::result::Result<T, <D as DistAlgorithm>::Error>;
 
 impl<D> DistAlgorithm for SenderQueue<D>
 where
-    D: DistAlgorithm + Debug + Send + Sync + SenderQueueFunc<D> + KnowsAllRemoteNodes<D>,
-    D::Message: Clone + Epoched + Serialize + for<'r> Deserialize<'r>,
+    D: DistAlgorithm + Debug + Send + Sync + SenderQueueFunc<D>,
+    D::Message: Clone + Epoched + Serialize + DeserializeOwned,
     D::NodeId: NodeIdT + Rand,
 {
     type NodeId = D::NodeId;
@@ -143,14 +145,14 @@ where
     }
 
     fn our_id(&self) -> &D::NodeId {
-        self.netinfo.our_id()
+        &self.our_id
     }
 }
 
 impl<D> SenderQueue<D>
 where
-    D: DistAlgorithm + Debug + Send + Sync + SenderQueueFunc<D> + KnowsAllRemoteNodes<D>,
-    D::Message: Clone + Epoched + Serialize + for<'r> Deserialize<'r>,
+    D: DistAlgorithm + Debug + Send + Sync + SenderQueueFunc<D>,
+    D::Message: Clone + Epoched + Serialize + DeserializeOwned,
     D::NodeId: NodeIdT + Rand,
 {
     /// Returns a new `SenderQueueBuilder` configured to manage a given `DynamicHoneyBadger` instance.
@@ -164,7 +166,7 @@ where
         sender_id: &D::NodeId,
         epoch: <D::Message as Epoched>::Epoch,
     ) -> Step<D> {
-        self.remote_epochs
+        self.peer_epochs
             .entry(sender_id.clone())
             .and_modify(|e| {
                 if *e < epoch {
@@ -260,16 +262,14 @@ where
     /// resulting messages while placing onto the queue those remaining messages whose recipient is
     /// currently at an earlier epoch.
     fn defer_messages(&mut self, step: &mut ::Step<D>) {
-        let remote_epochs = &self.remote_epochs;
+        let peer_epochs = &self.peer_epochs;
         let algo = &mut self.algo;
-        let all_remote_nodes = algo.all_remote_nodes();
-        let all_remote_nodes_cloned = all_remote_nodes.iter().cloned();
         let deferred_msgs = step.defer_messages(
-            &self.remote_epochs,
-            all_remote_nodes_cloned,
+            &self.peer_epochs,
+            self.peer_ids.iter(),
             |us, them| algo.is_accepting_epoch(us, them),
             |us, them| algo.is_later_epoch(us, them),
-            |msg| algo.is_passed_unchanged(msg, remote_epochs),
+            |msg| algo.is_passed_unchanged(msg, peer_epochs),
         );
         // Append the deferred messages onto the queues.
         for (id, message) in deferred_msgs {
@@ -297,13 +297,13 @@ where
     algo: D,
     epoch: <D::Message as Epoched>::Epoch,
     outgoing_queue: OutgoingQueue<D>,
-    remote_epochs: BTreeMap<D::NodeId, <D::Message as Epoched>::Epoch>,
+    peer_epochs: BTreeMap<D::NodeId, <D::Message as Epoched>::Epoch>,
 }
 
 impl<D> SenderQueueBuilder<D>
 where
-    D: DistAlgorithm + Debug + Send + Sync + SenderQueueFunc<D> + KnowsAllRemoteNodes<D>,
-    D::Message: Clone + Epoched + Serialize + for<'r> Deserialize<'r>,
+    D: DistAlgorithm + Debug + Send + Sync + SenderQueueFunc<D>,
+    D::Message: Clone + Epoched + Serialize + DeserializeOwned,
     D::NodeId: NodeIdT + Rand,
 {
     pub fn new(algo: D) -> Self {
@@ -311,7 +311,7 @@ where
             algo,
             epoch: <D::Message as Epoched>::Epoch::default(),
             outgoing_queue: BTreeMap::default(),
-            remote_epochs: BTreeMap::default(),
+            peer_epochs: BTreeMap::default(),
         }
     }
 
@@ -325,22 +325,27 @@ where
         self
     }
 
-    pub fn remote_epochs(
+    pub fn peer_epochs(
         mut self,
-        remote_epochs: BTreeMap<D::NodeId, <D::Message as Epoched>::Epoch>,
+        peer_epochs: BTreeMap<D::NodeId, <D::Message as Epoched>::Epoch>,
     ) -> Self {
-        self.remote_epochs = remote_epochs;
+        self.peer_epochs = peer_epochs;
         self
     }
 
-    pub fn build(self, netinfo: Arc<NetworkInfo<D::NodeId>>) -> (SenderQueue<D>, Step<D>) {
+    pub fn build(
+        self,
+        our_id: D::NodeId,
+        peer_ids: BTreeSet<D::NodeId>,
+    ) -> (SenderQueue<D>, Step<D>) {
         let epoch = <D::Message as Epoched>::Epoch::default();
         let sq = SenderQueue {
             algo: self.algo,
-            netinfo,
+            our_id,
+            peer_ids,
             epoch: self.epoch,
             outgoing_queue: self.outgoing_queue,
-            remote_epochs: self.remote_epochs,
+            peer_epochs: self.peer_epochs,
         };
         let step: Step<D> = Target::All
             .message(MessageContent::EpochStarted.with_epoch(epoch))

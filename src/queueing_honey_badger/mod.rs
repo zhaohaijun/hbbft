@@ -34,7 +34,7 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use dynamic_honey_badger::{self, Batch as DhbBatch, DynamicHoneyBadger, Message};
 use transaction_queue::TransactionQueue;
-use {util, Contribution, DistAlgorithm, KnowsAllRemoteNodes, NodeIdT};
+use {util, Contribution, DistAlgorithm, NodeIdT};
 
 pub use dynamic_honey_badger::{Change, ChangeState, Epoch, Input};
 
@@ -220,17 +220,6 @@ where
 
     fn our_id(&self) -> &N {
         self.dyn_hb.our_id()
-    }
-}
-
-impl<T, N, Q> KnowsAllRemoteNodes<QueueingHoneyBadger<T, N, Q>> for QueueingHoneyBadger<T, N, Q>
-where
-    T: Contribution + Serialize + DeserializeOwned + Clone,
-    N: NodeIdT + Serialize + DeserializeOwned + Rand,
-    Q: TransactionQueue<T>,
-{
-    fn all_remote_nodes(&self) -> Vec<&N> {
-        self.dyn_hb.all_remote_nodes()
     }
 }
 

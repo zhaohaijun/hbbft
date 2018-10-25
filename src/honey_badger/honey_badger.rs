@@ -1,5 +1,5 @@
 use std::collections::btree_map::Entry;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bincode;
@@ -8,7 +8,7 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use super::epoch_state::EpochState;
 use super::{Batch, Error, ErrorKind, HoneyBadgerBuilder, Message, Result};
-use {util, Contribution, DistAlgorithm, Epoched, KnowsAllRemoteNodes, NetworkInfo, NodeIdT};
+use {util, Contribution, DistAlgorithm, Epoched, NetworkInfo, NodeIdT};
 
 pub use super::epoch_state::SubsetHandlingStrategy;
 
@@ -32,9 +32,6 @@ pub struct HoneyBadger<C, N: Rand> {
     pub(super) rng: Box<dyn Rng + Send + Sync>,
     /// Represents the optimization strategy to use for output of the `Subset` algorithm.
     pub(super) subset_handling_strategy: SubsetHandlingStrategy,
-    /// Observer nodes. These nodes are not validators and there is no ongoing ballot to add any of
-    /// them as a validator. However they should receive all `Target::All` messages.
-    pub(super) observers: BTreeSet<N>,
 }
 
 impl<C, N: Rand> Epoched for HoneyBadger<C, N> {
@@ -72,22 +69,6 @@ where
 
     fn our_id(&self) -> &N {
         self.netinfo.our_id()
-    }
-}
-
-impl<C, N> KnowsAllRemoteNodes<HoneyBadger<C, N>> for HoneyBadger<C, N>
-where
-    C: Contribution + Serialize + DeserializeOwned,
-    N: NodeIdT + Rand,
-{
-    fn all_remote_nodes(&self) -> Vec<&N> {
-        let our_id = self.netinfo.our_id();
-        self.netinfo
-            .all_ids()
-            .chain(self.observers.iter())
-            .filter(|&id| id != our_id)
-            .into_iter()
-            .collect()
     }
 }
 

@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bincode;
@@ -15,7 +15,7 @@ use fault_log::{Fault, FaultKind, FaultLog};
 use honey_badger::{self, HoneyBadger, Message as HbMessage};
 use sync_key_gen::{Ack, Part, PartOutcome, SyncKeyGen};
 use util::{self, SubRng};
-use {Contribution, DistAlgorithm, Epoched, KnowsAllRemoteNodes, NetworkInfo, NodeIdT, Target};
+use {Contribution, DistAlgorithm, Epoched, NetworkInfo, NodeIdT, Target};
 
 /// A Honey Badger instance that can handle adding and removing nodes.
 #[derive(Derivative)]
@@ -39,9 +39,6 @@ pub struct DynamicHoneyBadger<C, N: Rand> {
     // Boxed to avoid overloading the algorithm's type with more generics.
     #[derivative(Debug(format_with = "util::fmt_rng"))]
     pub(super) rng: Box<dyn rand::Rng + Send + Sync>,
-    /// Observer nodes. These nodes are not validators and there is no ongoing ballot to add any of
-    /// them as a validator. However they should receive all `Target::All` messages.
-    pub(crate) observers: BTreeSet<N>,
 }
 
 impl<C, N> DistAlgorithm for DynamicHoneyBadger<C, N>
@@ -74,23 +71,6 @@ where
 
     fn our_id(&self) -> &N {
         self.netinfo.our_id()
-    }
-}
-
-impl<C, N> KnowsAllRemoteNodes<DynamicHoneyBadger<C, N>> for DynamicHoneyBadger<C, N>
-where
-    C: Contribution + Serialize + DeserializeOwned,
-    N: NodeIdT + Serialize + DeserializeOwned + Rand,
-{
-    fn all_remote_nodes(&self) -> Vec<&N> {
-        let our_id = self.netinfo.our_id();
-        self.netinfo
-            .all_ids()
-            .chain(self.candidate().into_iter())
-            .chain(self.observers.iter())
-            .filter(|&id| id != our_id)
-            .into_iter()
-            .collect()
     }
 }
 
@@ -297,16 +277,6 @@ where
                 // If DKG completed, apply the change, restart Honey Badger, and inform the user.
                 debug!("{:?} DKG for {:?} complete!", self.our_id(), kgs.change);
                 self.netinfo = kgs.key_gen.into_network_info()?;
-                match kgs.change {
-                    Change::Add(ref id, ..) => {
-                        // Remove the candidate node from the set of observers.
-                        self.observers.remove(id);
-                    }
-                    Change::Remove(ref id) => {
-                        // Keep the removed node as an observer.
-                        self.observers.insert(id.clone());
-                    }
-                }
                 self.restart_honey_badger(batch_epoch + 1);
                 ChangeState::Complete(kgs.change)
             } else if let Some(change) = self.vote_counter.compute_winner().cloned() {
@@ -364,12 +334,9 @@ where
         self.key_gen_msg_buffer.retain(|kg_msg| kg_msg.0 >= era);
         let netinfo = Arc::new(self.netinfo.clone());
         self.vote_counter = VoteCounter::new(netinfo.clone(), era);
-        let mut observers = self.observers.clone();
-        self.candidate().map(|id| observers.insert(id.clone()));
         self.honey_badger = HoneyBadger::builder(netinfo)
             .max_future_epochs(self.max_future_epochs)
             .rng(self.rng.sub_rng())
-            .observers(observers)
             .build();
         debug!("Honey Badger restarted: {:?}", self.honey_badger);
     }
@@ -457,18 +424,5 @@ where
     /// Returns the maximum future epochs of the Honey Badger algorithm instance.
     pub fn max_future_epochs(&self) -> usize {
         self.max_future_epochs
-    }
-
-    /// Returns the current DKG candidate node if there is one.
-    fn candidate(&self) -> Option<&N> {
-        if let Some(ref kgs) = self.key_gen_state {
-            if let Change::Add(ref id, ..) = kgs.change {
-                Some(id)
-            } else {
-                None
-            }
-        } else {
-            None
-        }
     }
 }

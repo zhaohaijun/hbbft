@@ -6,7 +6,7 @@ use std::hash::Hash;
 use std::iter::once;
 
 use failure::Fail;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 
 use fault_log::{Fault, FaultLog};
 use {Target, TargetedMessage};
@@ -182,7 +182,7 @@ pub trait Epoched {
         + Send
         + Sync
         + Serialize
-        + for<'r> Deserialize<'r>;
+        + DeserializeOwned;
 
     /// Returns the object's epoch number.
     fn epoch(&self) -> Self::Epoch;
@@ -312,12 +312,4 @@ pub trait DistAlgorithm: Send + Sync {
 
     /// Returns this node's own ID.
     fn our_id(&self) -> &Self::NodeId;
-}
-
-pub trait KnowsAllRemoteNodes<D>
-where
-    D: DistAlgorithm,
-{
-    /// All remote nodes, validators and non-validators alike.
-    fn all_remote_nodes(&self) -> Vec<&D::NodeId>;
 }
