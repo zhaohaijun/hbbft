@@ -36,7 +36,7 @@ impl<M> Message for M where M: Debug + Send + Sync {}
 /// through `let _ = ...` or similar constructs, the implicit assumption should explicitliy be
 /// checked instead:
 ///
-/// ```rust,norun
+/// ```rust,no_run
 /// assert!(alg.propose(123).expect("Could not propose value").is_empty(),
 ///         "Algorithm will never output anything on first proposal");
 /// ```
