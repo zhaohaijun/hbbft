@@ -14,7 +14,7 @@ where
 {
     type Step = Step<T, N, Q>;
 
-    fn max_epoch_with_batch(&self, epoch: Epoch, batch: &Batch<T, N>) -> Epoch {
+    fn max_epoch_with_batch(&self, epoch: Epoch, batch: &Batch<T, N>) -> (Epoch, Option<N>) {
         self.dyn_hb.max_epoch_with_batch(epoch, batch)
     }
 

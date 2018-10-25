@@ -14,8 +14,8 @@ where
 {
     type Step = Step<C, N>;
 
-    fn max_epoch_with_batch(&self, epoch: u64, batch: &Batch<C, N>) -> u64 {
-        cmp::max(batch.epoch + 1, epoch)
+    fn max_epoch_with_batch(&self, epoch: u64, batch: &Batch<C, N>) -> (u64, Option<N>) {
+        (cmp::max(batch.epoch + 1, epoch), None)
     }
 
     fn is_accepting_epoch(&self, us: &Message<N>, them: u64) -> bool {

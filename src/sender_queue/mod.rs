@@ -27,12 +27,16 @@ where
 {
     type Step;
 
-    /// Returns the maximum epoch out of a given epoch and the epoch of a given batch.
+    /// Returns a pair containing
+    ///
+    /// - the maximum epoch out of a given epoch and the epoch of a given batch,
+    ///
+    /// - an optional new peer to be added to the set of peers.
     fn max_epoch_with_batch(
         &self,
         epoch: <D::Message as Epoched>::Epoch,
         batch: &D::Output,
-    ) -> <D::Message as Epoched>::Epoch;
+    ) -> (<D::Message as Epoched>::Epoch, Option<D::NodeId>);
 
     /// Whether the epoch `them` accepts the message `us`.
     fn is_accepting_epoch(&self, us: &D::Message, them: <D::Message as Epoched>::Epoch) -> bool;
@@ -239,14 +243,20 @@ where
     /// Updates the current Honey Badger epoch.
     fn update_epoch(&mut self, step: &::Step<D>) -> Step<D> {
         let mut updated = false;
-        // Look up `DynamicHoneyBadger` epoch updates.
-        self.epoch = step.output.iter().fold(self.epoch, |epoch, batch| {
-            let max_epoch = self.algo.max_epoch_with_batch(epoch, batch);
-            if max_epoch != epoch {
-                updated = true;
-            }
-            max_epoch
-        });
+        // Look up `DynamicHoneyBadger` epoch updates and collect any added peers.
+        let (new_epoch, mut new_peers) = step.output.iter().fold(
+            (self.epoch, BTreeSet::new()),
+            |(epoch, mut new_peers), batch| {
+                let (max_epoch, new_peer) = self.algo.max_epoch_with_batch(epoch, batch);
+                if max_epoch != epoch {
+                    updated = true;
+                }
+                new_peer.map(|peer| new_peers.insert(peer));
+                (max_epoch, new_peers)
+            },
+        );
+        self.epoch = new_epoch;
+        self.peer_ids.append(&mut new_peers);
         if updated {
             // Announce the new epoch.
             Target::All

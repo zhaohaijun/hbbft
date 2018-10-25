@@ -3,7 +3,7 @@ use std::cmp;
 use rand::Rand;
 use serde::{de::DeserializeOwned, Serialize};
 
-use super::{Batch, DynamicHoneyBadger, Epoch, Message, Step};
+use super::{Batch, Change, ChangeState, DynamicHoneyBadger, Epoch, Message, Step};
 use sender_queue::SenderQueueFunc;
 use {Contribution, Epoched, NodeIdT};
 
@@ -14,8 +14,16 @@ where
 {
     type Step = Step<C, N>;
 
-    fn max_epoch_with_batch(&self, epoch: Epoch, batch: &Batch<C, N>) -> Epoch {
-        cmp::max(batch.next_epoch, epoch)
+    fn max_epoch_with_batch(&self, epoch: Epoch, batch: &Batch<C, N>) -> (Epoch, Option<N>) {
+        (
+            cmp::max(batch.next_epoch, epoch),
+            if let ChangeState::InProgress(Change::Add(ref id, _)) = batch.change {
+                // Register the new node to send broadcast messages to it from now on.
+                Some(id.clone())
+            } else {
+                None
+            },
+        )
     }
 
     fn is_accepting_epoch(&self, us: &Message<N>, Epoch((them_era, them_hb_epoch)): Epoch) -> bool {
