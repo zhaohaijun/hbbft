@@ -9,7 +9,7 @@ use failure::Fail;
 use fault_log::{Fault, FaultLog};
 use TargetedMessage;
 
-/// A transaction, user message, etc.
+/// A transaction, user message, or other user data.
 pub trait Contribution: Eq + Debug + Hash + Send + Sync {}
 impl<C> Contribution for C where C: Eq + Debug + Hash + Send + Sync {}
 
@@ -21,11 +21,11 @@ impl<N> NodeIdT for N where N: Eq + Ord + Clone + Debug + Hash + Send + Sync {}
 pub trait Message: Debug + Send + Sync {}
 impl<M> Message for M where M: Debug + Send + Sync {}
 
-/// Single algorithm step result.
+/// Single algorithm step outcome.
 ///
 /// Each time input (typically in the form of user input or incoming network messages) is provided
-/// to an instance of an algorithm, a `Step` is produced as a result, potentially containing
-/// output values, fault log and network messages.
+/// to an instance of an algorithm, a `Step` is produced, potentially containing output values,
+/// a fault log, and network messages.
 ///
 /// Any `Step` **must always be used** by the client application; at the very least the resulting
 /// messages must be queued.
@@ -33,7 +33,7 @@ impl<M> Message for M where M: Debug + Send + Sync {}
 /// ## Handling unused Steps
 ///
 /// In the (rare) case of a `Step` not being of any interest at all, instead of discarding it
-/// through `let _ = ...` or similar constructs, the implicit assumption should explicitliy be
+/// through `let _ = ...` or similar constructs, the implicit assumption should explicitly be
 /// checked instead:
 ///
 /// ```rust,no_run
@@ -41,7 +41,7 @@ impl<M> Message for M where M: Debug + Send + Sync {}
 ///         "Algorithm will never output anything on first proposal");
 /// ```
 ///
-/// Should an edge case occur resulting in outgoing messages to be generated, the `assert!` will
+/// If an edge case occurs and outgoing messages are generated as a result, the `assert!` will
 /// catch it, instead of potentially stalling the algorithm.
 #[must_use = "The algorithm step result must be used."]
 #[derive(Debug)]
